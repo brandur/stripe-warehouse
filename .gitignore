@@ -1,5 +1,7 @@
 .env
-/feeder
+endpoint
+!endpoint/
+feeder
 !feeder/
-/naive
+naive
 !naive/

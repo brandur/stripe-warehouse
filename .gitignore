@@ -1,2 +1,5 @@
 .env
-stripe-warehouse
+/feeder
+!feeder/
+/naive
+!naive/

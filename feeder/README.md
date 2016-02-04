@@ -1,14 +1,9 @@
-# Stripe Warehouse Naive Implementation
+# Stripe Warehouse Feeder
 
-A work-in-progress demonstration of export capabilities with the Stripe API.
+Iterates the Stripe `GET /v1/events` endpoint and produces each event into
+Kafka.
 
-This is a naive version of the warehouse that uses only currently available
-capabilities like the charges and event endpoints. In practice, it will
-probably be too slow to scale for large customers.
-
-## Setup
-
-``` sh
-createdb stripe-warehouse
-psql stripe-warehouse < db/structure.sql
-```
+    export KAFKA_TOPIC=
+    export STRIPE_KEY=
+    go build
+    ./feeder

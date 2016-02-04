@@ -9,6 +9,10 @@ import (
 	"github.com/joeshaw/envdecode"
 )
 
+const (
+	ReportingIncrement = 10000
+)
+
 type Conf struct {
 	KafkaTopic string `env:"KAFKA_TOPIC"`
 	SeedBroker string `env:"SEED_BROKER,default=localhost:9092"`
@@ -52,9 +56,15 @@ func main() {
 ConsumerLoop:
 	for {
 		select {
-		case msg := <-partitionConsumer.Messages():
-			log.Printf("Consumed message offset %d\n", msg.Offset)
+		case <-partitionConsumer.Messages():
+			//case msg := <-partitionConsumer.Messages():
+			//log.Printf("Consumed message offset %d\n", msg.Offset)
+			//log.Printf("Message = %v\n", string(msg.Value))
 			consumed++
+
+			if consumed%ReportingIncrement == 0 {
+				log.Printf("Working. Processed %v record(s).", consumed)
+			}
 		case <-signals:
 			break ConsumerLoop
 		}

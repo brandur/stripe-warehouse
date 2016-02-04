@@ -12,8 +12,7 @@ import (
 
 const (
 	KafkaBatchSize     = 100
-	PageSize           = 100
-	ReportingIncrement = 100
+	ReportingIncrement = 10000
 )
 
 type Conf struct {

@@ -1,4 +1,6 @@
 .env
+consumer
+!consumer/
 endpoint
 !endpoint/
 feeder

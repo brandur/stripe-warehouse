@@ -1,21 +1,35 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
-	"os"
-	"os/signal"
+	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/Shopify/sarama"
 	"github.com/joeshaw/envdecode"
 )
 
-const (
-	ReportingIncrement = 10000
+var (
+	// Number of seconds to wait while consuming a topic before assuming that
+	// the topic is now empty and returning with what we have.
+	ConsumeTimeout = 3
+
+	// Default limit of events to return unless the user overrides.
+	DefaultLimit = 5000
 )
 
 type Conf struct {
-	KafkaTopic string `env:"KAFKA_TOPIC"`
+	KafkaTopic string `env:"KAFKA_TOPIC,required"`
 	SeedBroker string `env:"SEED_BROKER,default=localhost:9092"`
+}
+
+type Page struct {
+	Data    []*map[string]interface{} `json:"data"`
+	HasMore bool                      `json:"has_more"`
+	Object  string                    `json:"object"`
+	URL     string                    `json:"url"`
 }
 
 func main() {
@@ -36,39 +50,103 @@ func main() {
 		}
 	}()
 
-	// start right at the beginning
-	partitionConsumer, err := consumer.ConsumePartition(conf.KafkaTopic, 0, sarama.OffsetOldest)
-	if err != nil {
-		panic(err)
-	}
+	http.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+		limit := DefaultLimit
+		if r.Form.Get("limit") != "" {
+			var err error
+			limit, err = strconv.Atoi(r.Form.Get("limit"))
+			if err != nil {
+				log.Fatalln(err)
+			}
+		}
 
-	defer func() {
-		if err := partitionConsumer.Close(); err != nil {
+		// The one problem with this system is that the client always gets a
+		// duplicate event when requesting the next page. We should probably
+		// skip the initial event for convenience.
+		offset := sarama.OffsetOldest
+		if r.URL.Query().Get("starting_after") != "" {
+			var err error
+			offset, err = strconv.ParseInt(r.URL.Query().Get("starting_after"), 10, 64)
+			if err != nil {
+				log.Fatalln(err)
+			}
+		}
+
+		log.Printf("Handling request limit %v offset %v", limit, offset)
+
+		partitionConsumer, err := consumer.ConsumePartition(conf.KafkaTopic, 0, offset)
+		if err != nil {
+			panic(err)
+		}
+
+		defer func() {
+			if err := partitionConsumer.Close(); err != nil {
+				log.Fatalln(err)
+			}
+		}()
+
+		var events []*map[string]interface{}
+		firstLoop := true
+		hasMore := true
+
+	ConsumerLoop:
+		for {
+			select {
+			case message := <-partitionConsumer.Messages():
+				// skip the first message due to overlap
+				if offset != sarama.OffsetOldest && firstLoop {
+					firstLoop = false
+					break
+				}
+
+				var event map[string]interface{}
+				err := json.Unmarshal(message.Value, &event)
+				if err != nil {
+					log.Fatalln(err)
+				}
+
+				// Fill the event's new `offset` field.
+				event["offset"] = message.Offset
+
+				events = append(events, &event)
+				//log.Printf("Consumed message. Now have %v event(s).", len(events))
+
+				// We've fulfilled the requested limit. We're done!
+				if len(events) >= limit {
+					break ConsumerLoop
+				}
+
+			// Unfortunately saram doesn't currently give us a good way of
+			// detecting the end of a topic, so detect the end by timing out
+			// for now.
+			//
+			// Note that this could result in a degenerate request which is
+			// very long as new messages continue to trickle in until we hit
+			// max page size at a rate that's never quite enough to hit our
+			// timeout.
+			case <-time.After(time.Second * time.Duration(ConsumeTimeout)):
+				log.Printf("Timeout. Probably at end of topic.\n")
+				hasMore = false
+				break ConsumerLoop
+			}
+		}
+
+		page := &Page{
+			Data:    events,
+			HasMore: hasMore,
+			Object:  "list",
+			URL:     "/events",
+		}
+
+		data, err := json.Marshal(page)
+		if err != nil {
 			log.Fatalln(err)
 		}
-	}()
 
-	// Trap SIGINT to trigger a shutdown.
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt)
+		w.Write(data)
+		log.Printf("Responded to client with %v event(s)\n", len(events))
+	})
 
-	consumed := 0
-ConsumerLoop:
-	for {
-		select {
-		case <-partitionConsumer.Messages():
-			//case msg := <-partitionConsumer.Messages():
-			//log.Printf("Consumed message offset %d\n", msg.Offset)
-			//log.Printf("Message = %v\n", string(msg.Value))
-			consumed++
-
-			if consumed%ReportingIncrement == 0 {
-				log.Printf("Working. Processed %v record(s).", consumed)
-			}
-		case <-signals:
-			break ConsumerLoop
-		}
-	}
-
-	log.Printf("Consumed: %d\n", consumed)
+	log.Printf("Starting HTTP server")
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }

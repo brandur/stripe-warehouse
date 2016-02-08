@@ -88,41 +88,56 @@ func main() {
 func loadEvents(doneChan chan int, pageChan chan Page, db gorm.DB) (int, error) {
 	for {
 		select {
-		case numProcessed := <-doneChan:
-			return numProcessed, nil
-
 		case page := <-pageChan:
-			startPage := time.Now()
-			tx := db.Begin()
-
-			for _, event := range page.Data {
-				switch event.Type {
-				case "charge.created":
-					//log.Printf("amount = %v", event.Data.Obj["amount"])
-					charge := Charge{
-						// TODO: deserialize to proper charge object
-						ID:      event.Data.Obj["id"].(string),
-						Amount:  uint64(event.Data.Obj["amount"].(float64)),
-						Created: time.Unix(int64(event.Data.Obj["created"].(float64)), 0),
-						// TODO: should actually be in its own table
-						Offset: event.Offset,
-					}
-					//tx.FirstOrCreate(&charge)
-					tx.Create(&charge)
-
-					// TODO: this doesn't seem to do anything even on error
-					if tx.Error != nil {
-						return 0, tx.Error
-					}
-				}
+			err := loadEventsPage(page, db)
+			if err != nil {
+				return 0, err
 			}
 
-			tx.Commit()
-
-			log.Printf("Loaded page of %v event(s) in %v.",
-				len(page.Data), time.Now().Sub(startPage))
+		default:
+			select {
+			case numProcessed := <-doneChan:
+				return numProcessed, nil
+			default:
+				// If we didn't get a done signal, sleep for a short time just
+				// to keep this goroutine from spinning like crazy before the
+				// first batch of work comes in.
+				time.Sleep(1 * time.Second)
+			}
 		}
 	}
+}
+
+func loadEventsPage(page Page, db gorm.DB) error {
+	startPage := time.Now()
+	tx := db.Begin()
+
+	for _, event := range page.Data {
+		switch event.Type {
+		case "charge.created":
+			//log.Printf("amount = %v", event.Data.Obj["amount"])
+			charge := Charge{
+				// TODO: deserialize to proper charge object
+				ID:      event.Data.Obj["id"].(string),
+				Amount:  uint64(event.Data.Obj["amount"].(float64)),
+				Created: time.Unix(int64(event.Data.Obj["created"].(float64)), 0),
+				// TODO: should actually be in its own table
+				Offset: event.Offset,
+			}
+			//tx.FirstOrCreate(&charge)
+			tx.Create(&charge)
+
+			// TODO: this doesn't seem to do anything even on error
+			if tx.Error != nil {
+				return tx.Error
+			}
+		}
+	}
+
+	tx.Commit()
+	log.Printf("Loaded page of %v event(s) in %v.",
+		len(page.Data), time.Now().Sub(startPage))
+	return nil
 }
 
 func requestEvents(doneChan chan int, pageChan chan Page) error {

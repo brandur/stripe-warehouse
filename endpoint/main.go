@@ -17,7 +17,7 @@ var (
 	ConsumeTimeout = 3
 
 	// Default limit of events to return unless the user overrides.
-	DefaultLimit = 5000
+	DefaultLimit = 10000
 )
 
 type Conf struct {

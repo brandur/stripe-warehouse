@@ -1,4 +1,5 @@
 .env
+NOTES.txt
 consumer
 !consumer/
 endpoint

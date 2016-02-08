@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	PageSize           = 100
+	PageBuffer         = 10
 	ReportingIncrement = 100
 )
 
@@ -63,17 +63,72 @@ func main() {
 		log.Fatal(err)
 	}
 
-	err = consumeEvents(db)
+	doneChan := make(chan int)
+	pageChan := make(chan Page, PageBuffer)
+	start := time.Now()
+
+	// Request events from the API.
+	go func() {
+		err := requestEvents(doneChan, pageChan)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	// And simultaneously, load them to Postgres.
+	numProcessed, err := loadEvents(doneChan, pageChan, db)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	log.Printf("Reached end of the log. Processed %v event(s) in %v.",
+		numProcessed, time.Now().Sub(start))
 }
 
-func consumeEvents(db gorm.DB) error {
+func loadEvents(doneChan chan int, pageChan chan Page, db gorm.DB) (int, error) {
+	for {
+		select {
+		case numProcessed := <-doneChan:
+			return numProcessed, nil
+
+		case page := <-pageChan:
+			startPage := time.Now()
+			tx := db.Begin()
+
+			for _, event := range page.Data {
+				switch event.Type {
+				case "charge.created":
+					//log.Printf("amount = %v", event.Data.Obj["amount"])
+					charge := Charge{
+						// TODO: deserialize to proper charge object
+						ID:      event.Data.Obj["id"].(string),
+						Amount:  uint64(event.Data.Obj["amount"].(float64)),
+						Created: time.Unix(int64(event.Data.Obj["created"].(float64)), 0),
+						// TODO: should actually be in its own table
+						Offset: event.Offset,
+					}
+					//tx.FirstOrCreate(&charge)
+					tx.Create(&charge)
+
+					// TODO: this doesn't seem to do anything even on error
+					if tx.Error != nil {
+						return 0, tx.Error
+					}
+				}
+			}
+
+			tx.Commit()
+
+			log.Printf("Loaded page of %v event(s) in %v.",
+				len(page.Data), time.Now().Sub(startPage))
+		}
+	}
+}
+
+func requestEvents(doneChan chan int, pageChan chan Page) error {
 	var offset uint64
 	client := &http.Client{}
 	numProcessed := 0
-	start := time.Now()
 
 	for {
 		startPage := time.Now()
@@ -82,7 +137,7 @@ func consumeEvents(db gorm.DB) error {
 		if offset != 0 {
 			url = fmt.Sprintf("%s?starting_after=%v", url, offset)
 		}
-		log.Printf("Requesting page: %v", url)
+		log.Printf("Requesting page: %v (offset %v)", url, offset)
 
 		resp, err := client.Get(url)
 		if err != nil {
@@ -104,44 +159,23 @@ func consumeEvents(db gorm.DB) error {
 			return err
 		}
 
-		tx := db.Begin()
+		log.Printf("Received page of %v event(s) in %v. Work queue depth is %v",
+			len(page.Data), time.Now().Sub(startPage), len(pageChan))
 
-		for _, event := range page.Data {
-			switch event.Type {
-			case "charge.created":
-				//log.Printf("amount = %v", event.Data.Obj["amount"])
-				charge := Charge{
-					// TODO: deserialize to proper charge object
-					ID:      event.Data.Obj["id"].(string),
-					Amount:  uint64(event.Data.Obj["amount"].(float64)),
-					Created: time.Unix(int64(event.Data.Obj["created"].(float64)), 0),
-					// TODO: should actually be in its own table
-					Offset: event.Offset,
-				}
-				//tx.FirstOrCreate(&charge)
-				tx.Create(&charge)
-
-				// TODO: this doesn't seem to do anything even on error
-				if tx.Error != nil {
-					return tx.Error
-				}
-
-				// Set offset for the next page request.
-				offset = event.Offset
-			}
-		}
-
-		tx.Commit()
-
-		log.Printf("Processed page of %v event(s) in %v.",
-			len(page.Data), time.Now().Sub(startPage))
+		pageChan <- page
 
 		numProcessed += len(page.Data)
 		if !page.HasMore {
-			log.Printf("Reached end of the log. Processed %v event(s) in %v.",
-				numProcessed, time.Now().Sub(start))
+			break
+		}
+
+		// Set offset for the next page request.
+		if len(page.Data) > 0 {
+			offset = page.Data[len(page.Data)-1].Offset
 		}
 	}
+
+	doneChan <- numProcessed
 
 	return nil
 }

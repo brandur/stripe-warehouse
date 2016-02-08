@@ -41,5 +41,5 @@ work):
     cd consumer
     createdb stripe-warehouse
     psql stripe-warehouse < db/structure.sql
-    export DATABASE_URL=postgres://localhost/stripe-warehouse?sslmode=disable
+    export DATABASE_URL='postgres://localhost/stripe-warehouse?sslmode=disable'
     go build && ./consumer

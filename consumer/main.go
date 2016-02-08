@@ -9,9 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/jinzhu/gorm"
 	"github.com/joeshaw/envdecode"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/stripe/stripe-go"
 )
 
@@ -19,13 +18,6 @@ const (
 	PageBuffer         = 10
 	ReportingIncrement = 100
 )
-
-type Charge struct {
-	ID      string    `gorm:"column:id;primary_key"`
-	Amount  uint64    `gorm:"column:amount"`
-	Created time.Time `gorm:"column:created"`
-	Offset  uint64    `gorm:"column:event_offset"`
-}
 
 type Conf struct {
 	DatabaseURL string `env:"DATABASE_URL,required"`
@@ -53,12 +45,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	dbSQL, err := sql.Open("postgres", conf.DatabaseURL)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	db, err := gorm.Open("postgres", dbSQL)
+	db, err := sql.Open("postgres", conf.DatabaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -85,7 +72,7 @@ func main() {
 		numProcessed, time.Now().Sub(start))
 }
 
-func loadEvents(doneChan chan int, pageChan chan Page, db gorm.DB) (int, error) {
+func loadEvents(doneChan chan int, pageChan chan Page, db *sql.DB) (int, error) {
 	for {
 		select {
 		case page := <-pageChan:
@@ -108,33 +95,48 @@ func loadEvents(doneChan chan int, pageChan chan Page, db gorm.DB) (int, error) 
 	}
 }
 
-func loadEventsPage(page Page, db gorm.DB) error {
+func loadEventsPage(page Page, db *sql.DB) error {
 	startPage := time.Now()
-	tx := db.Begin()
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+
+	statement, err := tx.Prepare(pq.CopyIn("charges",
+		"id", "amount", "created", "event_offset"))
+	if err != nil {
+		return err
+	}
 
 	for _, event := range page.Data {
 		switch event.Type {
 		case "charge.created":
-			//log.Printf("amount = %v", event.Data.Obj["amount"])
-			charge := Charge{
+			_, err = statement.Exec(
 				// TODO: deserialize to proper charge object
-				ID:      event.Data.Obj["id"].(string),
-				Amount:  uint64(event.Data.Obj["amount"].(float64)),
-				Created: time.Unix(int64(event.Data.Obj["created"].(float64)), 0),
+				event.Data.Obj["id"].(string),
+				uint64(event.Data.Obj["amount"].(float64)),
+				time.Unix(int64(event.Data.Obj["created"].(float64)), 0),
 				// TODO: should actually be in its own table
-				Offset: event.Offset,
-			}
-			//tx.FirstOrCreate(&charge)
-			tx.Create(&charge)
-
-			// TODO: this doesn't seem to do anything even on error
-			if tx.Error != nil {
-				return tx.Error
-			}
+				event.Offset,
+			)
 		}
 	}
 
-	tx.Commit()
+	_, err = statement.Exec()
+	if err != nil {
+		return err
+	}
+
+	err = statement.Close()
+	if err != nil {
+		return err
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		return err
+	}
+
 	log.Printf("Loaded page of %v event(s) in %v.",
 		len(page.Data), time.Now().Sub(startPage))
 	return nil

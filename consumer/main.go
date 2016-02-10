@@ -24,11 +24,11 @@ type Conf struct {
 }
 
 // Use a custom event implementation because the one included with the stripe
-// package doesn't have our special "offset" field.
+// package doesn't have our special "sequence" field.
 type Event struct {
-	Data   stripe.EventData `json:"data"`
-	Offset uint64           `json:"offset"`
-	Type   string           `json:"type"`
+	Data     stripe.EventData `json:"data"`
+	Sequence uint64           `json:"sequence"`
+	Type     string           `json:"type"`
 }
 
 type Page struct {
@@ -103,7 +103,7 @@ func loadEventsPage(page Page, db *sql.DB) error {
 	}
 
 	statement, err := tx.Prepare(pq.CopyIn("charges",
-		"id", "amount", "created", "event_offset"))
+		"id", "amount", "created", "sequence"))
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func loadEventsPage(page Page, db *sql.DB) error {
 				uint64(event.Data.Obj["amount"].(float64)),
 				time.Unix(int64(event.Data.Obj["created"].(float64)), 0),
 				// TODO: should actually be in its own table
-				event.Offset,
+				event.Sequence,
 			)
 		}
 	}
@@ -143,7 +143,7 @@ func loadEventsPage(page Page, db *sql.DB) error {
 }
 
 func requestEvents(doneChan chan int, pageChan chan Page) error {
-	var offset uint64
+	var sequence uint64
 	client := &http.Client{}
 	numProcessed := 0
 
@@ -151,10 +151,10 @@ func requestEvents(doneChan chan int, pageChan chan Page) error {
 		startPage := time.Now()
 
 		url := "http://localhost:8080/v1/events"
-		if offset != 0 {
-			url = fmt.Sprintf("%s?starting_after=%v", url, offset)
+		if sequence != 0 {
+			url = fmt.Sprintf("%s?sequence=%v", url, sequence)
 		}
-		log.Printf("Requesting page: %v (offset %v)", url, offset)
+		log.Printf("Requesting page: %v (sequence %v)", url, sequence)
 
 		resp, err := client.Get(url)
 		if err != nil {
@@ -186,9 +186,9 @@ func requestEvents(doneChan chan int, pageChan chan Page) error {
 			break
 		}
 
-		// Set offset for the next page request.
+		// Set sequence for the next page request.
 		if len(page.Data) > 0 {
-			offset = page.Data[len(page.Data)-1].Offset
+			sequence = page.Data[len(page.Data)-1].Sequence
 		}
 	}
 

@@ -67,7 +67,7 @@ func main() {
 		offset := sarama.OffsetOldest
 		if r.URL.Query().Get("starting_after") != "" {
 			var err error
-			offset, err = strconv.ParseInt(r.URL.Query().Get("starting_after"), 10, 64)
+			offset, err = strconv.ParseInt(r.URL.Query().Get("sequence"), 10, 64)
 			if err != nil {
 				log.Fatalln(err)
 			}

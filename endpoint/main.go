@@ -51,7 +51,7 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/v1/events", func(w http.ResponseWriter, r *http.Request) {
 		limit := DefaultLimit
 		if r.Form.Get("limit") != "" {
 			var err error

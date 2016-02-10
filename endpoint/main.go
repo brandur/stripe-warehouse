@@ -65,7 +65,7 @@ func main() {
 		// duplicate event when requesting the next page. We should probably
 		// skip the initial event for convenience.
 		offset := sarama.OffsetOldest
-		if r.URL.Query().Get("starting_after") != "" {
+		if r.URL.Query().Get("sequence") != "" {
 			var err error
 			offset, err = strconv.ParseInt(r.URL.Query().Get("sequence"), 10, 64)
 			if err != nil {

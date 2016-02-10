@@ -21,10 +21,12 @@ const (
 
 type Conf struct {
 	DatabaseURL string `env:"DATABASE_URL,required"`
+	StripeKey   string `env:"STRIPE_KEY,required"`
+	StripeURL   string `env:"STRIPE_URL,default=https://api.stripe.com"`
 }
 
 // Use a custom event implementation because the one included with the stripe
-// package doesn't have our special "sequence" field.
+// package doesn't have our special "offset" field.
 type Event struct {
 	Data     stripe.EventData `json:"data"`
 	Sequence uint64           `json:"sequence"`
@@ -56,7 +58,7 @@ func main() {
 
 	// Request events from the API.
 	go func() {
-		err := requestEvents(doneChan, pageChan)
+		err := requestEvents(conf.StripeKey, conf.StripeURL, doneChan, pageChan)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -142,7 +144,7 @@ func loadEventsPage(page Page, db *sql.DB) error {
 	return nil
 }
 
-func requestEvents(doneChan chan int, pageChan chan Page) error {
+func requestEvents(stripeKey, stripeURL string, doneChan chan int, pageChan chan Page) error {
 	var sequence uint64
 	client := &http.Client{}
 	numProcessed := 0
@@ -150,13 +152,12 @@ func requestEvents(doneChan chan int, pageChan chan Page) error {
 	for {
 		startPage := time.Now()
 
-		url := "http://localhost:8080/v1/events"
-		if sequence != 0 {
-			url = fmt.Sprintf("%s?sequence=%v", url, sequence)
-		}
+		url := fmt.Sprintf("%s/v1/events?sequence=%v", stripeURL, sequence)
 		log.Printf("Requesting page: %v (sequence %v)", url, sequence)
 
-		resp, err := client.Get(url)
+		req, err := http.NewRequest("GET", url, nil)
+		req.SetBasicAuth(stripeKey, "")
+		resp, err := client.Do(req)
 		if err != nil {
 			return err
 		}

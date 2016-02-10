@@ -106,8 +106,10 @@ func main() {
 					log.Fatalln(err)
 				}
 
-				// Fill the event's new `offset` field.
-				event["offset"] = message.Offset
+				// Fill the event's new `sequence` field (the public name for
+				// "offset" in order to disambiguate from Stripe's old
+				// offset-style pagination parameter).
+				event["sequence"] = message.Offset
 
 				events = append(events, &event)
 				//log.Printf("Consumed message. Now have %v event(s).", len(events))

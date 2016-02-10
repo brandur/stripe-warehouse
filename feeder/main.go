@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -35,7 +36,7 @@ func main() {
 	stripe.Key = conf.StripeKey
 	//stripe.LogLevel = 1 // errors only
 
-	producer, err := sarama.NewSyncProducer([]string{conf.SeedBroker}, nil)
+	producer, err := sarama.NewSyncProducer(strings.Split(conf.SeedBroker, ","), nil)
 	if err != nil {
 		log.Fatal(err)
 	}

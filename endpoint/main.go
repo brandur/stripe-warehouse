@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Shopify/sarama"
@@ -39,7 +40,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	consumer, err := sarama.NewConsumer([]string{conf.SeedBroker}, nil)
+	consumer, err := sarama.NewConsumer(strings.Split(conf.SeedBroker, ","), nil)
 	if err != nil {
 		panic(err)
 	}

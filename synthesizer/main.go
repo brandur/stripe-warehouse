@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"strings"
 
 	"github.com/Shopify/sarama"
 	"github.com/joeshaw/envdecode"
@@ -28,7 +29,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	producer, err := sarama.NewSyncProducer([]string{conf.SeedBroker}, nil)
+	producer, err := sarama.NewSyncProducer(strings.Split(conf.SeedBroker, ","), nil)
 	if err != nil {
 		log.Fatal(err)
 	}

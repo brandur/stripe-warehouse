@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NYTimes/gziphandler"
 	"github.com/Shopify/sarama"
 	"github.com/joeshaw/envdecode"
 )
@@ -51,7 +52,7 @@ func main() {
 		}
 	}()
 
-	http.HandleFunc("/v1/events", func(w http.ResponseWriter, r *http.Request) {
+	listEvents := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		limit := DefaultLimit
 		if r.Form.Get("limit") != "" {
 			var err error
@@ -149,6 +150,9 @@ func main() {
 		w.Write(data)
 		log.Printf("Responded to client with %v event(s)\n", len(events))
 	})
+
+	listEventsGz := gziphandler.GzipHandler(listEvents)
+	http.Handle("/v1/events", listEventsGz)
 
 	log.Printf("Starting HTTP server")
 	log.Fatal(http.ListenAndServe(":8080", nil))

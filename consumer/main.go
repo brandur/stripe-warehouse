@@ -157,6 +157,10 @@ func requestEvents(stripeKey, stripeURL string, doneChan chan int, pageChan chan
 
 		req, err := http.NewRequest("GET", url, nil)
 		req.SetBasicAuth(stripeKey, "")
+
+		// Note that Go will automatically request gzip compression because we
+		// didn't explicitly add an `Accept-Encoding` header. The "endpoint"
+		// program supports this, so it's a good thing.
 		resp, err := client.Do(req)
 		if err != nil {
 			return err

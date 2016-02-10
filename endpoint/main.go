@@ -136,7 +136,7 @@ func main() {
 			Data:    events,
 			HasMore: hasMore,
 			Object:  "list",
-			URL:     "/events",
+			URL:     "/v1/events",
 		}
 
 		data, err := json.Marshal(page)

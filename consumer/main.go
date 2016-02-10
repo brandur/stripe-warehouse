@@ -150,7 +150,7 @@ func requestEvents(doneChan chan int, pageChan chan Page) error {
 	for {
 		startPage := time.Now()
 
-		url := "http://localhost:8080/events"
+		url := "http://localhost:8080/v1/events"
 		if offset != 0 {
 			url = fmt.Sprintf("%s?starting_after=%v", url, offset)
 		}
